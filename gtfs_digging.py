@@ -25,6 +25,34 @@ DEPARTURE_TIME = "08:15:00"
 TRIP_TIME_MINS = 90
 
 
+import requests
+
+
+def send_gpx_to_graphhopper_local(
+    gpx_file_path, profile="foot", host="http://localhost:8989"
+):
+    """
+    Sends a GPX file to a local GraphHopper Map Matching API instance.
+
+    Parameters:
+    - gpx_file_path (str): Path to the GPX file.
+    - profile (str): The profile to use for map matching (e.g., 'car').
+    - host (str): Base URL of the local GraphHopper instance.
+
+    Returns:
+    - response (requests.Response): The response from the API.
+    """
+    url = f"{host}/match?profile={profile}"
+    headers = {"Content-Type": "application/gpx+xml"}
+
+    with open(gpx_file_path, "r") as gpx_file:
+        gpx_data = gpx_file.read()
+
+    response = requests.post(url, headers=headers, data=gpx_data)
+
+    return response
+
+
 def create_gpx_files_from_csv(csv_path: pathlib.Path, output_dir: pathlib.Path):
     # Read the CSV file
     print(f"Reading: {csv_path}")
@@ -253,6 +281,14 @@ create_gpx_files_from_csv(
 )
 
 print("Process completed!")
+
+test = send_gpx_to_graphhopper_local(
+    gpx_file_path=r"E:\Repos\bus-route-snapping\assets\gpx_traces\VJ00a68be87a2da89846fe3076fcc2c68a980838ce_stop_trace.gpx",
+    profile="foot",
+)
+print(test)
+
+print("debug test")
 
 # =============================================================================
 # 025-05-22 17:23:02,579 - INFO - Route id: 29 has 27 unique associated trip_ids
