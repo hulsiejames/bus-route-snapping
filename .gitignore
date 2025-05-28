@@ -1,7 +1,10 @@
 
-
+# file types
+**.qgz
 
 # data 
 **.gpx
 **.csv
 **.txt
+**.geojson
+**.gpkg
