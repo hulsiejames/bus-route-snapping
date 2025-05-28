@@ -4,10 +4,13 @@ Created on Thu May 22 17:29:27 2025
 
 @author: Signalis
 """
-
+import requests
 import pandas as pd
+import geopandas as gpd
+from shapely.geometry import LineString
 import pathlib
 from datetime import datetime, timedelta
+import json
 
 import gpxpy
 import gpxpy.gpx
@@ -25,11 +28,8 @@ DEPARTURE_TIME = "08:15:00"
 TRIP_TIME_MINS = 90
 
 
-import requests
-
-
 def send_gpx_to_graphhopper_local(
-    gpx_file_path, profile="foot", host="http://localhost:8989"
+    gpx_file_path: pathlib.Path, profile: str = "car", host="http://localhost:8989"
 ):
     """
     Sends a GPX file to a local GraphHopper Map Matching API instance.
@@ -42,15 +42,23 @@ def send_gpx_to_graphhopper_local(
     Returns:
     - response (requests.Response): The response from the API.
     """
-    url = f"{host}/match?profile={profile}"
+    url = f"{host}/match?profile={profile}"  # Car routing is as close to bus (not foot)
     headers = {"Content-Type": "application/gpx+xml"}
 
     with open(gpx_file_path, "r") as gpx_file:
         gpx_data = gpx_file.read()
 
-    response = requests.post(url, headers=headers, data=gpx_data)
+    _response = requests.post(
+        url,
+        headers=headers,
+        data=gpx_data,
+        params={
+            "points_encoded": "false",
+        },
+        timeout=60,
+    )
 
-    return response
+    return _response
 
 
 def create_gpx_files_from_csv(csv_path: pathlib.Path, output_dir: pathlib.Path):
@@ -90,6 +98,39 @@ def create_gpx_files_from_csv(csv_path: pathlib.Path, output_dir: pathlib.Path):
         gpx_file_path = output_dir / f"{trip_id}_stop_trace.gpx"
         with open(gpx_file_path, "w") as f:
             f.write(gpx.to_xml())
+
+
+def export_to_geojson(
+    response_json: requests.Response.json,
+    output_file_path: pathlib.Path,
+):
+    """
+    Exports the LineString geometry from a GraphHopper map-matching (\match)
+     JSON response to a GeoJSON file.
+
+    Parameters:
+    - response_json (dict): The JSON response from the GraphHopper API.
+    - output_file_path (str): The path to the output GeoJSON file.
+    """
+    # Extract the coordinates and type
+    coordinates = response_json["paths"][0]["points"]["coordinates"]
+    geometry_type = response_json["paths"][0]["points"]["type"]
+
+    # Create the GeoJSON structure
+    geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": geometry_type, "coordinates": coordinates},
+                "properties": {},
+            }
+        ],
+    }
+
+    # Write the GeoJSON to a file
+    with open(output_file_path, "w") as geojson_file:
+        json.dump(geojson, geojson_file, indent=4)
 
 
 print("reading stop times")
@@ -282,13 +323,68 @@ create_gpx_files_from_csv(
 
 print("Process completed!")
 
-test = send_gpx_to_graphhopper_local(
+response = send_gpx_to_graphhopper_local(
     gpx_file_path=r"E:\Repos\bus-route-snapping\assets\gpx_traces\VJ00a68be87a2da89846fe3076fcc2c68a980838ce_stop_trace.gpx",
-    profile="foot",
+    profile="car",
 )
-print(test)
+print(response)
 
 print("debug test")
+
+# Export files in each iteration - slow
+
+# for gpx_file in tqdm(
+#     GPX_TRACES_DIR.glob("*.gpx"),
+#     desc="Snapping GPX files to OSM network",
+#     unit="trips",
+#     total=len(list(GPX_TRACES_DIR.glob("*.gpx"))),
+# ):
+
+#     response = send_gpx_to_graphhopper_local(gpx_file_path=gpx_file, profile="car")
+#     if response.status_code == 200:
+
+#         # Export to GeoJSON
+#         geojson_output_path = GPX_TRACES_DIR / f"{gpx_file.stem}_matched.geojson"
+#         export_to_geojson(response.json(), geojson_output_path)
+
+#     else:
+#         print(
+#             f"Failed to process GPX file {gpx_file.name}: {response.status_code} - {response.text}"
+#         )
+
+# print("All GPX files processed!")
+
+
+# List to store GeoDataFrame rows
+gdf_rows = []
+
+# Iterate over each GPX file
+for gpx_file in tqdm(
+    GPX_TRACES_DIR.glob("*.gpx"),
+    desc="Snapping GPX files to OSM network",
+    unit="trips",
+    total=len(list(GPX_TRACES_DIR.glob("*.gpx"))),
+):
+    response = send_gpx_to_graphhopper_local(gpx_file_path=gpx_file, profile="car")
+    if response.status_code == 200:
+        response_json = response.json()
+        coordinates = response_json["paths"][0]["points"]["coordinates"]
+        geometry = LineString(coordinates)
+        gdf_rows.append({"trip_id": f"{gpx_file.stem}_snapped", "geometry": geometry})
+    else:
+        print(
+            f"Failed to process GPX file {gpx_file.name}: {response.status_code} - {response.text}"
+        )
+
+# Create GeoDataFrame
+gdf = gpd.GeoDataFrame(gdf_rows, crs="EPSG:4326")
+
+# Export to GeoJSON
+output_geojson_path = GPX_TRACES_DIR / "all_snapped_routes.gpkg"
+gdf.to_file(output_geojson_path, driver="GeoPackage")
+
+print("All GPX files processed and exported to GeoPackage!")
+
 
 # =============================================================================
 # 025-05-22 17:23:02,579 - INFO - Route id: 29 has 27 unique associated trip_ids
