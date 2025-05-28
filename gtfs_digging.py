@@ -380,8 +380,8 @@ for gpx_file in tqdm(
 gdf = gpd.GeoDataFrame(gdf_rows, crs="EPSG:4326")
 
 # Export to GeoJSON
-output_geojson_path = GPX_TRACES_DIR / "all_snapped_routes.gpkg"
-gdf.to_file(output_geojson_path, driver="GeoPackage")
+output_path = GPX_TRACES_DIR / "all_snapped_routes.gpkg"
+gdf.to_file(output_path)
 
 print("All GPX files processed and exported to GeoPackage!")
 
